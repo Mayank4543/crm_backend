@@ -6,12 +6,12 @@ const router = express.Router();
 
 // Create segment validation schema
 const segmentSchema = {
-  name: require('joi').string().required(),
-  description: require('joi').string().allow('').optional(),
-  rules: require('joi').object().required()
+  name: require("joi").string().required(),
+  description: require("joi").string().allow("").optional(),
+  rules: require("joi").object().required(),
 };
 
-const validateSegmentCreation = validate(require('joi').object(segmentSchema));
+const validateSegmentCreation = validate(require("joi").object(segmentSchema));
 
 // Create a new segment
 router.post("/", validateSegmentCreation, async (req, res, next) => {
@@ -54,7 +54,10 @@ router.get("/", async (req, res, next) => {
 // Get segment by ID
 router.get("/:id", async (req, res, next) => {
   try {
-    const segment = await segmentService.getSegmentById(req.params.id, req.user.id);
+    const segment = await segmentService.getSegmentById(
+      req.params.id,
+      req.user.id
+    );
 
     if (!segment) {
       return res.status(404).json({
@@ -75,8 +78,11 @@ router.get("/:id", async (req, res, next) => {
 // Preview segment audience
 router.post("/:id/preview", async (req, res, next) => {
   try {
-    const segment = await segmentService.getSegmentById(req.params.id, req.user.id);
-    
+    const segment = await segmentService.getSegmentById(
+      req.params.id,
+      req.user.id
+    );
+
     if (!segment) {
       return res.status(404).json({
         success: false,
@@ -84,13 +90,16 @@ router.post("/:id/preview", async (req, res, next) => {
       });
     }
 
-    const audienceSize = await segmentService.previewSegmentAudience(segment.rules, req.user.id);
+    const audienceSize = await segmentService.previewSegmentAudience(
+      segment.rules,
+      req.user.id
+    );
 
     res.status(200).json({
       success: true,
       data: {
-        audienceSize
-      }
+        audienceSize,
+      },
     });
   } catch (err) {
     next(err);
@@ -100,7 +109,11 @@ router.post("/:id/preview", async (req, res, next) => {
 // Update segment
 router.put("/:id", validateSegmentCreation, async (req, res, next) => {
   try {
-    const segment = await segmentService.updateSegment(req.params.id, req.body, req.user.id);
+    const segment = await segmentService.updateSegment(
+      req.params.id,
+      req.body,
+      req.user.id
+    );
 
     if (!segment) {
       return res.status(404).json({
@@ -122,7 +135,10 @@ router.put("/:id", validateSegmentCreation, async (req, res, next) => {
 // Delete segment
 router.delete("/:id", async (req, res, next) => {
   try {
-    const result = await segmentService.deleteSegment(req.params.id, req.user.id);
+    const result = await segmentService.deleteSegment(
+      req.params.id,
+      req.user.id
+    );
 
     if (!result) {
       return res.status(404).json({

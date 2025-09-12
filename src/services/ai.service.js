@@ -265,9 +265,157 @@ const autoTagCampaign = async (message, segmentRules) => {
   }
 };
 
+/**
+ * Suggest the best time to send campaigns
+ * @param {string} segmentId - Segment ID to analyze
+ * @returns {Object} - Suggested times with confidence scores
+ */
+const suggestCampaignSchedule = async (segmentId) => {
+  try {
+    console.log("Generating schedule suggestions for segment:", segmentId);
+
+    // Get customer interaction data for the segment
+    const { data: customers, error } = await supabase
+      .from("customers")
+      .select("last_active_time, active_days")
+      .eq("segment_id", segmentId);
+
+    if (error) {
+      throw new Error("Failed to fetch customer data");
+    }
+
+    // Analyze activity patterns (simplified for demo)
+    const activityByHour = new Array(24).fill(0);
+    const activityByDay = {
+      MONDAY: 0,
+      TUESDAY: 0,
+      WEDNESDAY: 0,
+      THURSDAY: 0,
+      FRIDAY: 0,
+      SATURDAY: 0,
+      SUNDAY: 0,
+    };
+
+    // Process customer activity data
+    customers.forEach((customer) => {
+      if (customer.last_active_time) {
+        const date = new Date(customer.last_active_time);
+        activityByHour[date.getHours()]++;
+      }
+      if (customer.active_days) {
+        customer.active_days.forEach((day) => {
+          activityByDay[day]++;
+        });
+      }
+    });
+
+    // Find best hours (top 3)
+    const bestHours = activityByHour
+      .map((count, hour) => ({ hour, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 3)
+      .map(({ hour }) => hour);
+
+    // Find best days (top 3)
+    const bestDays = Object.entries(activityByDay)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 3)
+      .map(([day]) => day);
+
+    return {
+      bestTimes: bestHours.map((hour) => ({
+        time: `${hour}:00`,
+        confidence: "high",
+      })),
+      bestDays: bestDays.map((day) => ({
+        day,
+        confidence: "high",
+      })),
+      recommendation: `Best time to send: ${bestDays[0]} at ${bestHours[0]}:00`,
+    };
+  } catch (err) {
+    console.error("Error suggesting campaign schedule:", err);
+    throw new Error("Failed to generate schedule suggestions");
+  }
+};
+
+/**
+ * Generate lookalike audience based on successful campaign
+ * @param {string} campaignId - Source campaign ID
+ * @returns {Object} - New segment rules for lookalike audience
+ */
+const generateLookalikeAudience = async (campaignId) => {
+  try {
+    console.log("Generating lookalike audience for campaign:", campaignId);
+
+    // Get successful deliveries from the campaign
+    const { data: successfulDeliveries, error: deliveryError } = await supabase
+      .from("communication_logs")
+      .select("customer_id")
+      .eq("campaign_id", campaignId)
+      .eq("status", "SENT");
+
+    if (deliveryError) {
+      throw new Error("Failed to fetch successful deliveries");
+    }
+
+    // Get customer profiles for successful deliveries
+    const customerIds = successfulDeliveries.map((d) => d.customer_id);
+    const { data: customers, error: customerError } = await supabase
+      .from("customers")
+      .select("total_spend, total_visits, last_visit_date")
+      .in("id", customerIds);
+
+    if (customerError) {
+      throw new Error("Failed to fetch customer profiles");
+    }
+
+    // Analyze customer characteristics
+    const avgSpend =
+      customers.reduce((sum, c) => sum + (c.total_spend || 0), 0) /
+      customers.length;
+    const avgVisits =
+      customers.reduce((sum, c) => sum + (c.total_visits || 0), 0) /
+      customers.length;
+
+    // Generate rules for lookalike audience
+    const lookalikeRules = {
+      operator: "AND",
+      conditions: [
+        {
+          field: "total_spend",
+          operation: "greaterThan",
+          value: avgSpend * 0.8, // 80% of average spend
+        },
+        {
+          field: "total_visits",
+          operation: "greaterThan",
+          value: Math.floor(avgVisits * 0.8), // 80% of average visits
+        },
+      ],
+    };
+
+    return {
+      rules: lookalikeRules,
+      insights: {
+        sourceAudienceSize: customers.length,
+        avgSpend: Math.round(avgSpend),
+        avgVisits: Math.round(avgVisits),
+        recommendation:
+          "Targeting similar customers with comparable spending and engagement patterns",
+      },
+    };
+  } catch (err) {
+    console.error("Error generating lookalike audience:", err);
+    throw new Error("Failed to generate lookalike audience");
+  }
+};
+
 module.exports = {
   naturalLanguageToRules,
   generateMessageSuggestions,
   generateCampaignSummary,
   autoTagCampaign,
+  suggestCampaignSchedule,
+  generateLookalikeAudience,
 };

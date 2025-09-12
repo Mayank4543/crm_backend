@@ -2,7 +2,7 @@
  * Campaign Consumer
  * Handles campaign processing and message delivery
  */
-const { redisClient, channels } = require("../config/redis");
+const { subscriber, channels } = require("../config/redis");
 const supabase = require("../config/database");
 const { sendMessage } = require("../services/message.service");
 
@@ -289,7 +289,7 @@ const processDeliveryStatus = async (data) => {
 const startCampaignConsumer = async () => {
   try {
     // Subscribe to campaign creation channel
-    await redisClient.subscribe(channels.CAMPAIGN_CREATED, async (message) => {
+    await subscriber.subscribe(channels.CAMPAIGN_CREATED, async (message) => {
       try {
         const data = JSON.parse(message);
         await processCampaignCreation(data);
@@ -299,7 +299,7 @@ const startCampaignConsumer = async () => {
     });
 
     // Subscribe to delivery status channel
-    await redisClient.subscribe(channels.DELIVERY_STATUS, async (message) => {
+    await subscriber.subscribe(channels.DELIVERY_STATUS, async (message) => {
       try {
         const data = JSON.parse(message);
         await processDeliveryStatus(data);

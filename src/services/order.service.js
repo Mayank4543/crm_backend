@@ -1,6 +1,6 @@
 // Order service
 const supabase = require("../config/database");
-const { redisClient, channels } = require("../config/redis");
+const { publisher, channels } = require("../config/redis");
 
 // Create a new order with user context
 const createOrder = async (orderData, userId) => {
@@ -13,7 +13,7 @@ const createOrder = async (orderData, userId) => {
   };
 
   // Publish to Redis for async processing
-  await redisClient.publish(
+  await publisher.publish(
     channels.ORDER_CREATED,
     JSON.stringify({
       data: orderWithUser,

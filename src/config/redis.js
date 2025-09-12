@@ -1,38 +1,37 @@
 // Redis configuration
-const Redis = require('redis');
-const dotenv = require('dotenv');
+const Redis = require("redis");
+const dotenv = require("dotenv");
 
 dotenv.config();
 
-const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
+const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 
-// Create Redis client
-const redisClient = Redis.createClient({
-  url: REDIS_URL
-});
+// Create separate clients for publishing and subscribing
+const publisher = Redis.createClient({ url: REDIS_URL });
+const subscriber = publisher.duplicate();
 
-// Connect to Redis
+// Connect clients
 (async () => {
   try {
-    await redisClient.connect();
-    console.log('Connected to Redis');
+    await Promise.all([publisher.connect(), subscriber.connect()]);
+    console.log("Connected to Redis (publisher and subscriber)");
   } catch (err) {
-    console.error('Redis connection error:', err);
+    console.error("Redis connection error:", err);
   }
 })();
 
 // Handle Redis errors
-redisClient.on('error', (err) => {
-  console.error('Redis error:', err);
-});
+publisher.on("error", (err) => console.error("Redis publisher error:", err));
+subscriber.on("error", (err) => console.error("Redis subscriber error:", err));
 
 module.exports = {
-  redisClient,
+  publisher,
+  subscriber,
   // Define Redis channels/streams
   channels: {
-    CUSTOMER_CREATED: 'customer:created',
-    ORDER_CREATED: 'order:created',
-    CAMPAIGN_CREATED: 'campaign:created',
-    DELIVERY_STATUS: 'delivery:status'
-  }
+    CUSTOMER_CREATED: "customer:created",
+    ORDER_CREATED: "order:created",
+    CAMPAIGN_CREATED: "campaign:created",
+    DELIVERY_STATUS: "delivery:status",
+  },
 };

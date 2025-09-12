@@ -22,6 +22,9 @@ router.post("/", validateCampaignCreation, async (req, res, next) => {
 
 router.get("/", async (req, res, next) => {
   try {
+    // Prevent 304 Not Modified responses
+    res.setHeader("Cache-Control", "no-cache");
+
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
 

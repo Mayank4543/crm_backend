@@ -1,7 +1,3 @@
-/**
- * Customers Model
- * Represents the SQL table for customer management
- */
 
 const CREATE_CUSTOMERS_TABLE = `
 CREATE TABLE IF NOT EXISTS customers (

@@ -1,14 +1,6 @@
-/**
- * Customer Consumer
- * Handles customer data persistence from Redis pub/sub
- */
-const { redisClient, channels } = require("../config/redis");
+const { subscriber, channels } = require("../config/redis");
 const supabase = require("../config/database");
 
-/**
- * Process customer creation message
- * @param {Object} data - Customer data
- */
 const processCustomerCreation = async (data) => {
   try {
     console.log("Processing customer creation:", data.email);
@@ -18,8 +10,8 @@ const processCustomerCreation = async (data) => {
       .insert([
         {
           email: data.email,
-          first_name: data.firstName,
-          last_name: data.lastName,
+          first_name: data.first_name,
+          last_name: data.last_name,
           phone: data.phone,
           address: data.address,
           tags: data.tags || [],
@@ -39,16 +31,12 @@ const processCustomerCreation = async (data) => {
   }
 };
 
-/**
- * Start customer consumer
- */
 const startCustomerConsumer = async () => {
   try {
-    // Subscribe to customer creation channel
-    await redisClient.subscribe(channels.CUSTOMER_CREATED, async (message) => {
+    await subscriber.subscribe(channels.CUSTOMER_CREATED, async (message) => {
       try {
-        const data = JSON.parse(message);
-        await processCustomerCreation(data);
+        const { data: customerData } = JSON.parse(message);
+        await processCustomerCreation(customerData);
       } catch (err) {
         console.error("Error processing customer message:", err);
       }

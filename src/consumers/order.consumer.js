@@ -2,7 +2,7 @@
  * Order Consumer
  * Handles order data persistence from Redis pub/sub
  */
-const { redisClient, channels } = require("../config/redis");
+const { subscriber, channels } = require("../config/redis");
 const supabase = require("../config/database");
 
 /**
@@ -90,7 +90,7 @@ const updateCustomerMetrics = async (customerId, amount) => {
 const startOrderConsumer = async () => {
   try {
     // Subscribe to order creation channel
-    await redisClient.subscribe(channels.ORDER_CREATED, async (message) => {
+    await subscriber.subscribe(channels.ORDER_CREATED, async (message) => {
       try {
         const data = JSON.parse(message);
         await processOrderCreation(data);

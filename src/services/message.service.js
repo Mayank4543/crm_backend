@@ -1,7 +1,7 @@
 // Message service for sending messages to customers
 const axios = require("axios");
 const supabase = require("../config/database");
-const { redisClient, channels } = require("../config/redis");
+const { publisher, channels } = require("../config/redis");
 
 // Simulated vendor API URL (in a real app, this would be an actual API endpoint)
 const VENDOR_API_URL = "https://api.example.com/send-message"; // Replace with real vendor API
@@ -77,7 +77,7 @@ const updateMessageStatus = async (
   campaignId
 ) => {
   // Publish to Redis for async batch processing
-  await redisClient.publish(
+  await publisher.publish(
     channels.DELIVERY_STATUS,
     JSON.stringify({
       messageId,

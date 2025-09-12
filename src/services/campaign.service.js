@@ -1,6 +1,6 @@
 // Campaign service
 const supabase = require("../config/database");
-const { redisClient, channels } = require("../config/redis");
+const { publisher, channels } = require("../config/redis");
 const customerService = require("./customer.service");
 const messageService = require("./message.service");
 const aiService = require("./ai.service");
@@ -10,7 +10,7 @@ const createCampaign = async (campaignData, userId) => {
   // Add user ID to campaign data
   const campaign = {
     ...campaignData,
-    userId,
+    created_by: userId,
     audienceSize: 0,
     sentCount: 0,
     failedCount: 0,
@@ -31,7 +31,7 @@ const createCampaign = async (campaignData, userId) => {
   }
 
   // Publish to Redis for async processing
-  await redisClient.publish(
+  await publisher.publish(
     channels.CAMPAIGN_CREATED,
     JSON.stringify({
       campaignId: data.id,
@@ -49,7 +49,7 @@ const getCampaigns = async (userId, page = 1, limit = 20) => {
   const { data, error, count } = await supabase
     .from("campaigns")
     .select("*", { count: "exact" })
-    .eq("userId", userId)
+    .eq("created_by", userId)
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
 
@@ -69,7 +69,7 @@ const getAllCampaigns = async (userId) => {
   const { data, error } = await supabase
     .from("campaigns")
     .select("*")
-    .eq("userId", userId)
+    .eq("created_by", userId)
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -86,7 +86,7 @@ const getCampaignByIdForUser = async (id, userId) => {
     .from("campaigns")
     .select("*")
     .eq("id", id)
-    .eq("userId", userId)
+    .eq("created_by", userId)
     .single();
 
   if (error) {

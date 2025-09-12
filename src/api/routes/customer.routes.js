@@ -22,18 +22,24 @@ router.get("/", async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
-    
-    const result = await customerService.getCustomers(req.user?.id, page, limit);
+
+    const result = await customerService.getCustomers(
+      req.user?.id,
+      page,
+      limit
+    );
 
     res.status(200).json({
       success: true,
       data: result.customers || result, // Handle both paginated and simple responses
-      pagination: result.total ? {
-        total: result.total,
-        page,
-        limit,
-        pages: Math.ceil(result.total / limit),
-      } : undefined,
+      pagination: result.total
+        ? {
+            total: result.total,
+            page,
+            limit,
+            pages: Math.ceil(result.total / limit),
+          }
+        : undefined,
     });
   } catch (err) {
     next(err);
@@ -42,7 +48,10 @@ router.get("/", async (req, res, next) => {
 
 router.get("/:id", async (req, res, next) => {
   try {
-    const customer = await customerService.getCustomerById(req.params.id, req.user?.id);
+    const customer = await customerService.getCustomerById(
+      req.params.id,
+      req.user?.id
+    );
 
     if (!customer) {
       return res.status(404).json({
