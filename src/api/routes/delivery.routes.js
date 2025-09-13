@@ -1,8 +1,31 @@
 const express = require("express");
 const messageService = require("../../services/message.service");
+const { validate, schemas } = require("../middlewares/validation.middleware");
 
 const router = express.Router();
 
+// Delivery receipt endpoint for vendor API callbacks
+router.post("/receipt", validate(schemas.deliveryReceiptSchema), async (req, res, next) => {
+  try {
+    const { messageId, status, customerId, campaignId } = req.body;
+
+    // Process the delivery receipt
+    await messageService.updateMessageStatus(messageId, status, customerId, campaignId);
+
+    // Always respond with 200 to vendor API
+    res.status(200).json({
+      success: true,
+      message: "Delivery receipt processed"
+    });
+  } catch (err) {
+    console.error("Error processing delivery receipt:", err);
+    // Still return 200 to prevent vendor retries
+    res.status(200).json({
+      success: false,
+      message: "Error processing receipt, but acknowledged"
+    });
+  }
+});
 
 router.post("/webhook", async (req, res, next) => {
   try {

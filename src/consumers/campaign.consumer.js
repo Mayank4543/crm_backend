@@ -229,7 +229,7 @@ const applyFilter = (query, condition, isOr = false) => {
  */
 const processDeliveryStatus = async (data) => {
   try {
-    console.log("Processing delivery status update:", data.deliveryId);
+    console.log("Processing delivery status update:", data.messageId);
 
     // Update communication log with delivery status
     const { error } = await supabase
@@ -238,7 +238,7 @@ const processDeliveryStatus = async (data) => {
         status: data.status,
         sent_at: data.status === "sent" ? new Date().toISOString() : null,
       })
-      .eq("id", data.deliveryId);
+      .eq("id", data.messageId);
 
     if (error) {
       console.error("Error updating delivery status:", error);
@@ -249,7 +249,7 @@ const processDeliveryStatus = async (data) => {
     // If failed, increment campaign failed count
     if (data.campaignId) {
       const updateField =
-        data.status === "sent" ? "sent_count" : "failed_count";
+        data.status === "SENT" ? "sent_count" : "failed_count";
 
       // Get current count
       const { data: campaign, error: fetchError } = await supabase

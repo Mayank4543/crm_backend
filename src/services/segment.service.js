@@ -5,9 +5,14 @@ const customerService = require("./customer.service");
 // Create a new segment
 const createSegment = async (segmentData, userId) => {
   const segment = {
-    ...segmentData,
+    name: segmentData.name,
+    description: segmentData.description || null,
+    rules: segmentData.rules,
+    is_dynamic: segmentData.is_dynamic !== undefined ? segmentData.is_dynamic : true,
+    tags: Array.isArray(segmentData.tags) ? segmentData.tags : [],
     created_by: userId,
     audience_size: 0,
+    last_calculated_at: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
@@ -28,13 +33,17 @@ const createSegment = async (segmentData, userId) => {
     const audienceSize = await customerService.countCustomersBySegment(
       segmentData.rules
     );
-    await updateSegment(data.id, { audience_size: audienceSize }, userId);
-    data.audience_size = audienceSize;
+    
+    const updatedSegment = await updateSegment(data.id, { 
+      audience_size: audienceSize,
+      last_calculated_at: new Date().toISOString()
+    }, userId);
+    
+    return updatedSegment || { ...data, audience_size: audienceSize };
   } catch (err) {
     console.error("Error calculating audience size:", err);
+    return data;
   }
-
-  return data;
 };
 
 // Get segments with pagination
@@ -53,8 +62,32 @@ const getSegments = async (userId, page = 1, limit = 20) => {
     throw new Error("Failed to get segments");
   }
 
+  // Add customer counts to each segment
+  const segmentsWithCounts = await Promise.all(
+    data.map(async (segment) => {
+      try {
+        const customerCount = await customerService.countCustomersBySegment(
+          segment.rules
+        );
+        return {
+          ...segment,
+          customer_count: customerCount,
+        };
+      } catch (err) {
+        console.error(
+          `Error counting customers for segment ${segment.id}:`,
+          err
+        );
+        return {
+          ...segment,
+          customer_count: segment.audience_size || 0,
+        };
+      }
+    })
+  );
+
   return {
-    segments: data,
+    segments: segmentsWithCounts,
     total: count,
   };
 };
@@ -133,9 +166,34 @@ const deleteSegment = async (id, userId) => {
   return data;
 };
 
-// Preview segment audience size
+// Preview segment audience with detailed data
 const previewSegmentAudience = async (rules, userId) => {
-  return await customerService.countCustomersBySegment(rules);
+  try {
+    console.log('Previewing segment audience with rules:', JSON.stringify(rules, null, 2));
+    
+    const customers = await customerService.findCustomersBySegment(rules);
+    
+    console.log(`Preview found ${customers.length} customers`);
+
+    return {
+      total: customers.length,
+      count: customers.length,
+      sample: customers.slice(0, 5).map((customer) => ({
+        id: customer.id,
+        name: `${customer.first_name || ''} ${customer.last_name || ''}`.trim(),
+        email: customer.email,
+        phone: customer.phone,
+        first_name: customer.first_name,
+        last_name: customer.last_name,
+        total_spend: customer.total_spend,
+        total_visits: customer.total_visits,
+        created_at: customer.created_at,
+      })),
+    };
+  } catch (error) {
+    console.error('Error in previewSegmentAudience:', error);
+    throw error;
+  }
 };
 
 // Refresh audience size for a segment

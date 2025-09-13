@@ -1,86 +1,106 @@
 const express = require("express");
 const passport = require("passport");
 const jwt = require("jsonwebtoken");
+const { authenticateJWT } = require("../middlewares/auth.middleware");
 
 const router = express.Router();
-
-// Google OAuth login
 router.get(
   "/google",
-  passport.authenticate("google", { scope: ["profile", "email"] })
+  passport.authenticate("google", {
+    scope: ["profile", "email"],
+  })
 );
-
-// Google OAuth callback with error handling
-router.get("/google/callback", (req, res, next) => {
-  passport.authenticate("google", { session: false }, (err, user, info) => {
-    if (err) {
-      console.error("OAuth error:", err);
-      return res.redirect(
-        `${
-          process.env.FRONTEND_URL || "http://localhost:3000"
-        }/login?error=oauth_error`
-      );
-    }
-
-    if (!user) {
-      console.error("No user returned from OAuth");
-      return res.redirect(
-        `${
-          process.env.FRONTEND_URL || "http://localhost:3000"
-        }/login?error=no_user`
-      );
-    }
-
+router.get(
+  "/google/callback",
+  passport.authenticate("google", { session: false }),
+  (req, res) => {
     try {
+      if (!req.user) {
+        return res.redirect(
+          `${process.env.FRONTEND_URL}/login?error=authentication_failed`
+        );
+      }
+
       // Generate JWT token
       const token = jwt.sign(
         {
-          id: user.id,
-          email: user.email,
-          name:
-            user.name ||
-            `${user.first_name || ""} ${user.last_name || ""}`.trim(),
+          id: req.user.id,
+          email: req.user.email,
+          name: req.user.name,
         },
         process.env.JWT_SECRET,
         { expiresIn: "7d" }
       );
 
       // Redirect to frontend with token
-      const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
-      res.redirect(`${frontendUrl}/dashboard?token=${token}`);
-    } catch (tokenError) {
-      console.error("Token generation error:", tokenError);
-      res.redirect(
-        `${
-          process.env.FRONTEND_URL || "http://localhost:3000"
-        }/login?error=token_error`
-      );
+      res.redirect(`${process.env.FRONTEND_URL}/dashboard?token=${token}`);
+    } catch (error) {
+      console.error("Auth callback error:", error);
+      res.redirect(`${process.env.FRONTEND_URL}/login?error=server_error`);
     }
-  })(req, res, next);
-});
+  }
+);
 
-// Logout
-router.post("/logout", (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: "Logged out successfully",
-  });
-});
-
-// Get current user
-router.get(
-  "/me",
-  passport.authenticate("jwt", { session: false }),
-  (req, res) => {
-    res.status(200).json({
-      success: true,
+router.get("/me", authenticateJWT, (req, res) => {
+  try {
+    res.json({
+      status: "success",
       data: {
         id: req.user.id,
         email: req.user.email,
         name: req.user.name,
       },
     });
+  } catch (error) {
+    console.error("Get user error:", error);
+    res.status(500).json({
+      status: "error",
+      message: "Failed to get user information",
+    });
   }
-);
+});
+
+router.post("/logout", authenticateJWT, (req, res) => {
+  try {
+   
+    res.json({
+      status: "success",
+      message: "Logged out successfully",
+    });
+  } catch (error) {
+    console.error("Logout error:", error);
+    res.status(500).json({
+      status: "error",
+      message: "Failed to logout",
+    });
+  }
+});
+
+// Test endpoint for development
+router.post("/test-token", (req, res) => {
+  try {
+    // Generate a test JWT token for development
+    const token = jwt.sign(
+      {
+        id: "test-user",
+        email: "test@example.com",
+        name: "Test User",
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "1d" }
+    );
+
+    res.json({
+      status: "success",
+      data: { token },
+    });
+  } catch (error) {
+    console.error("Test token error:", error);
+    res.status(500).json({
+      status: "error",
+      message: "Failed to generate test token",
+    });
+  }
+});
 
 module.exports = router;

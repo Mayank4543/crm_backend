@@ -7,10 +7,11 @@ const supabase = require("../config/database");
 
 /**
  * Process order creation message
- * @param {Object} data - Order data
+ * @param {Object} messageData - Message data containing order information
  */
-const processOrderCreation = async (data) => {
+const processOrderCreation = async (messageData) => {
   try {
+    const data = messageData.data; // Extract data from message wrapper
     console.log("Processing order creation:", data.orderNumber);
 
     // Create the order
@@ -92,8 +93,8 @@ const startOrderConsumer = async () => {
     // Subscribe to order creation channel
     await subscriber.subscribe(channels.ORDER_CREATED, async (message) => {
       try {
-        const data = JSON.parse(message);
-        await processOrderCreation(data);
+        const messageData = JSON.parse(message);
+        await processOrderCreation(messageData);
       } catch (err) {
         console.error("Error processing order message:", err);
       }

@@ -7,15 +7,20 @@ const aiService = require("./ai.service");
 
 // Create a new campaign
 const createCampaign = async (campaignData, userId) => {
-  // Add user ID to campaign data
+  // Map frontend fields to database fields
   const campaign = {
-    ...campaignData,
+    name: campaignData.name,
+    segment_id: campaignData.segmentId,
+    message_template: campaignData.messageTemplate,
     created_by: userId,
-    audienceSize: 0,
-    sentCount: 0,
-    failedCount: 0,
-    status: "PENDING",
+    audience_size: 0,
+    sent_count: 0,
+    failed_count: 0,
+    status: "draft",
+    tags: campaignData.tags || [],
+    ai_summary: campaignData.objective || null,
     created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
   };
 
   // Save campaign to database
@@ -28,6 +33,34 @@ const createCampaign = async (campaignData, userId) => {
   if (error) {
     console.error("Error creating campaign:", error);
     throw new Error("Failed to create campaign");
+  }
+
+  // Get segment to calculate audience size
+  try {
+    const { data: segment } = await supabase
+      .from("segments")
+      .select("rules")
+      .eq("id", campaignData.segmentId)
+      .single();
+
+    if (segment && segment.rules) {
+      const audienceSize = await customerService.countCustomersBySegment(segment.rules);
+      
+      // Update campaign with actual audience size
+      const { data: updatedCampaign } = await supabase
+        .from("campaigns")
+        .update({ audience_size: audienceSize })
+        .eq("id", data.id)
+        .select()
+        .single();
+
+      if (updatedCampaign) {
+        data.audience_size = audienceSize;
+      }
+    }
+  } catch (segmentError) {
+    console.error("Error calculating audience size:", segmentError);
+    // Don't fail the campaign creation if audience size calculation fails
   }
 
   // Publish to Redis for async processing
@@ -277,7 +310,13 @@ const getCampaignStats = async (campaignId, userId) => {
 
 // Preview campaign audience
 const previewCampaignAudience = async (rules, userId) => {
-  return await customerService.countCustomersBySegment(rules);
+  try {
+    const audienceSize = await customerService.countCustomersBySegment(rules);
+    return { audienceSize, count: audienceSize };
+  } catch (error) {
+    console.error("Error previewing campaign audience:", error);
+    return { audienceSize: 0, count: 0 };
+  }
 };
 
 module.exports = {

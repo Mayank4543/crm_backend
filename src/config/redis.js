@@ -30,6 +30,8 @@ module.exports = {
   // Define Redis channels/streams
   channels: {
     CUSTOMER_CREATED: "customer:created",
+    CUSTOMER_UPDATED: "customer:updated",
+    CUSTOMER_DELETED: "customer:deleted",
     ORDER_CREATED: "order:created",
     CAMPAIGN_CREATED: "campaign:created",
     DELIVERY_STATUS: "delivery:status",

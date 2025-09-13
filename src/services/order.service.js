@@ -2,21 +2,26 @@
 const supabase = require("../config/database");
 const { publisher, channels } = require("../config/redis");
 
-// Create a new order with user context
-const createOrder = async (orderData, userId) => {
-  // Add user context to order data
-  const orderWithUser = {
-    ...orderData,
-    userId,
-    ref: `ORD-${Date.now()}`,
-    status: "PENDING",
+// Create a new order
+const createOrder = async (orderData) => {
+  // Generate order number
+  const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  
+  // Structure order data for consumer
+  const orderForProcessing = {
+    customerId: orderData.customerId,
+    orderNumber: orderNumber,
+    amount: orderData.amount,
+    items: orderData.products || orderData.items, // Support both field names
+    status: "completed", // Default status
+    orderDate: new Date().toISOString(),
   };
 
   // Publish to Redis for async processing
   await publisher.publish(
     channels.ORDER_CREATED,
     JSON.stringify({
-      data: orderWithUser,
+      data: orderForProcessing,
       timestamp: new Date().toISOString(),
     })
   );
@@ -24,18 +29,17 @@ const createOrder = async (orderData, userId) => {
   return {
     status: "success",
     message: "Order creation queued",
-    ref: orderWithUser.ref,
+    ref: orderNumber,
   };
 };
 
-// Get orders with pagination for a specific user
-const getOrders = async (userId, page = 1, limit = 20) => {
+// Get orders with pagination
+const getOrders = async (page = 1, limit = 20) => {
   const offset = (page - 1) * limit;
 
   const { data, error, count } = await supabase
     .from("orders")
-    .select("*, customers(firstName, lastName, email)", { count: "exact" })
-    .eq("userId", userId)
+    .select("*, customers(first_name, last_name, email)", { count: "exact" })
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
 
@@ -50,13 +54,12 @@ const getOrders = async (userId, page = 1, limit = 20) => {
   };
 };
 
-// Get order by ID for specific user
-const getOrderById = async (id, userId) => {
+// Get order by ID
+const getOrderById = async (id) => {
   const { data, error } = await supabase
     .from("orders")
-    .select("*, customers(firstName, lastName, email)")
+    .select("*, customers(first_name, last_name, email)")
     .eq("id", id)
-    .eq("userId", userId)
     .single();
 
   if (error) {
@@ -86,7 +89,7 @@ const getAllOrders = async () => {
 const getOrderByIdInternal = async (id) => {
   const { data, error } = await supabase
     .from("orders")
-    .select("*, customers(firstName, lastName, email)")
+    .select("*, customers(first_name, last_name, email)")
     .eq("id", id)
     .single();
 
@@ -119,12 +122,46 @@ const getOrdersByCustomerId = async (customerId) => {
   const { data, error } = await supabase
     .from("orders")
     .select("*")
-    .eq("customerId", customerId)
+    .eq("customer_id", customerId)
     .order("created_at", { ascending: false });
 
   if (error) {
     console.error("Error getting customer orders:", error);
     throw new Error("Failed to get customer orders");
+  }
+
+  return data;
+};
+
+// Delete order by ID
+const deleteOrder = async (id) => {
+  const { data, error } = await supabase
+    .from("orders")
+    .delete()
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Error deleting order:", error);
+    throw new Error("Failed to delete order");
+  }
+
+  return data;
+};
+
+// Update order by ID
+const updateOrder = async (id, updateData) => {
+  const { data, error } = await supabase
+    .from("orders")
+    .update(updateData)
+    .eq("id", id)
+    .select("*, customers(first_name, last_name, email)")
+    .single();
+
+  if (error) {
+    console.error("Error updating order:", error);
+    throw new Error("Failed to update order");
   }
 
   return data;
@@ -163,4 +200,6 @@ module.exports = {
   saveOrder,
   getOrdersByCustomerId,
   getCustomerSpendingData,
+  deleteOrder,
+  updateOrder,
 };

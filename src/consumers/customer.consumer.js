@@ -14,6 +14,9 @@ const processCustomerCreation = async (data) => {
           last_name: data.last_name,
           phone: data.phone,
           address: data.address,
+          total_spend: data.total_spend || 0,
+          total_visits: data.total_visits || 0,
+          last_visit_date: data.last_visit_date || null,
           tags: data.tags || [],
         },
       ])

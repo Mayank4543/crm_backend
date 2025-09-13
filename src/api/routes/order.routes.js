@@ -7,7 +7,7 @@ const validateOrderCreation = validate(schemas.orderSchema);
 
 router.post("/", validateOrderCreation, async (req, res, next) => {
   try {
-    const result = await orderService.createOrder(req.body, req.user.id);
+    const result = await orderService.createOrder(req.body);
 
     res.status(201).json({
       success: true,
@@ -24,7 +24,7 @@ router.get("/", async (req, res, next) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
 
-    const result = await orderService.getOrders(req.user.id, page, limit);
+    const result = await orderService.getOrders(page, limit);
 
     res.status(200).json({
       success: true,
@@ -43,7 +43,7 @@ router.get("/", async (req, res, next) => {
 
 router.get("/:id", async (req, res, next) => {
   try {
-    const order = await orderService.getOrderById(req.params.id, req.user.id);
+    const order = await orderService.getOrderById(req.params.id);
 
     if (!order) {
       return res.status(404).json({
@@ -55,6 +55,36 @@ router.get("/:id", async (req, res, next) => {
     res.status(200).json({
       success: true,
       data: order,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Delete order by ID
+router.delete("/:id", async (req, res, next) => {
+  try {
+    const deletedOrder = await orderService.deleteOrder(req.params.id);
+
+    res.status(200).json({
+      success: true,
+      message: "Order deleted successfully",
+      data: deletedOrder,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Update order by ID
+router.put("/:id", async (req, res, next) => {
+  try {
+    const updatedOrder = await orderService.updateOrder(req.params.id, req.body);
+
+    res.status(200).json({
+      success: true,
+      message: "Order updated successfully",
+      data: updatedOrder,
     });
   } catch (err) {
     next(err);

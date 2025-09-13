@@ -4,13 +4,27 @@ const Joi = require("joi");
 // Validate request body against a schema
 const validate = (schema) => {
   return (req, res, next) => {
-    const { error } = schema.validate(req.body);
+    console.log('Validating request body:', JSON.stringify(req.body, null, 2));
+    const { error, value } = schema.validate(req.body, { 
+      abortEarly: false,
+      allowUnknown: true,  // Allow unknown fields for now
+      stripUnknown: true,  // Remove unknown fields
+      convert: true        // Convert types automatically
+    });
+    
     if (error) {
+      console.error('Validation error:', error.details);
       return res.status(400).json({
         status: "error",
         message: error.details[0].message,
+        field: error.details[0].path.join('.'),
+        details: error.details
       });
     }
+    
+    console.log('Validation successful, cleaned data:', JSON.stringify(value, null, 2));
+    // Replace req.body with validated and cleaned data
+    req.body = value;
     next();
   };
 };
@@ -19,11 +33,15 @@ const validate = (schema) => {
 const schemas = {
   // Customer validation schema
   customerSchema: Joi.object({
-    first_name: Joi.string().required(),
-    last_name: Joi.string().required(),
-    email: Joi.string().email().required(),
-    phone: Joi.string().allow("").optional(),
-    address: Joi.string().allow("").optional(),
+    first_name: Joi.string().trim().required(),
+    last_name: Joi.string().trim().required(),
+    email: Joi.string().email().trim().required(),
+    phone: Joi.string().trim().allow("", null).optional(),
+    address: Joi.string().trim().allow("", null).optional(),
+    total_spend: Joi.number().min(0).optional().default(0),
+    total_visits: Joi.number().integer().min(0).optional().default(0),
+    last_visit_date: Joi.string().allow("", null).optional(),
+    tags: Joi.array().items(Joi.string()).optional().default([]),
   }),
 
   // Order validation schema
