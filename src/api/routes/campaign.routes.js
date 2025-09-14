@@ -102,7 +102,7 @@ router.post("/preview", async (req, res, next) => {
       });
     }
 
-    const audienceSize = await campaignService.previewCampaignAudience(
+    const result = await campaignService.previewCampaignAudience(
       rules,
       req.user.id
     );
@@ -110,8 +110,118 @@ router.post("/preview", async (req, res, next) => {
     res.status(200).json({
       success: true,
       data: {
-        audienceSize,
+        audienceSize: result.audienceSize || result.count || 0,
+        count: result.audienceSize || result.count || 0,
       },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/:id", validateCampaignCreation, async (req, res, next) => {
+  try {
+    // Check if campaign exists and belongs to user
+    const existingCampaign = await campaignService.getCampaignByIdForUser(
+      req.params.id,
+      req.user.id
+    );
+
+    if (!existingCampaign) {
+      return res.status(404).json({
+        success: false,
+        message: "Campaign not found",
+      });
+    }
+
+    // Only prevent editing campaigns that are currently processing/sending
+    if (["processing", "sending"].includes(existingCampaign.status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot edit campaign while it's being processed",
+      });
+    }
+
+    const result = await campaignService.updateCampaignForUser(
+      req.params.id,
+      req.body,
+      req.user.id
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Campaign updated successfully",
+      data: result,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete("/:id", async (req, res, next) => {
+  try {
+    // Check if campaign exists and belongs to user
+    const existingCampaign = await campaignService.getCampaignByIdForUser(
+      req.params.id,
+      req.user.id
+    );
+
+    if (!existingCampaign) {
+      return res.status(404).json({
+        success: false,
+        message: "Campaign not found",
+      });
+    }
+
+    // Don't allow deleting campaigns that are processing
+    if (["processing", "sending"].includes(existingCampaign.status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot delete campaign while it's being processed",
+      });
+    }
+
+    await campaignService.deleteCampaignForUser(req.params.id, req.user.id);
+
+    res.status(200).json({
+      success: true,
+      message: "Campaign deleted successfully",
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/:id/execute", async (req, res, next) => {
+  try {
+    // Check if campaign exists and belongs to user
+    const existingCampaign = await campaignService.getCampaignByIdForUser(
+      req.params.id,
+      req.user.id
+    );
+
+    if (!existingCampaign) {
+      return res.status(404).json({
+        success: false,
+        message: "Campaign not found",
+      });
+    }
+
+    // Check if campaign can be executed (allow draft, failed, completed, and pending campaigns)
+    if (["processing", "sending"].includes(existingCampaign.status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot execute campaign with status: ${existingCampaign.status}. Campaign is currently being processed.`,
+      });
+    }
+
+    // Execute the campaign
+    const result = await campaignService.executeCampaign(req.params.id, req.user.id);
+
+    res.status(200).json({
+      success: true,
+      message: "Campaign executed successfully",
+      data: result,
     });
   } catch (err) {
     next(err);

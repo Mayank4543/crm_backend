@@ -3,6 +3,7 @@ const supabase = require("../config/database");
 const { publisher, channels } = require("../config/redis");
 const customerService = require("./customer.service");
 const messageService = require("./message.service");
+const emailService = require("./email.service");
 const aiService = require("./ai.service");
 
 // Create a new campaign
@@ -44,8 +45,10 @@ const createCampaign = async (campaignData, userId) => {
       .single();
 
     if (segment && segment.rules) {
-      const audienceSize = await customerService.countCustomersBySegment(segment.rules);
-      
+      const audienceSize = await customerService.countCustomersBySegment(
+        segment.rules
+      );
+
       // Update campaign with actual audience size
       const { data: updatedCampaign } = await supabase
         .from("campaigns")
@@ -141,6 +144,103 @@ const getCampaignById = async (id) => {
   if (error) {
     console.error("Error getting campaign:", error);
     throw new Error("Failed to get campaign");
+  }
+
+  return data;
+};
+
+// Update campaign for specific user
+const updateCampaignForUser = async (id, updateData, userId) => {
+  // Map frontend fields to database fields if needed
+  const mappedData = {
+    name: updateData.name,
+    segment_id: updateData.segmentId || updateData.segment_id,
+    message_template: updateData.messageTemplate || updateData.message_template,
+    tags: updateData.tags || [],
+    ai_summary: updateData.objective || updateData.ai_summary,
+    status: updateData.status, // Allow status updates
+    updated_at: new Date().toISOString(),
+  };
+
+  // Remove undefined values
+  Object.keys(mappedData).forEach(key => {
+    if (mappedData[key] === undefined) {
+      delete mappedData[key];
+    }
+  });
+
+  const { data, error } = await supabase
+    .from("campaigns")
+    .update(mappedData)
+    .eq("id", id)
+    .eq("created_by", userId)
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Error updating campaign:", error);
+    throw new Error("Failed to update campaign");
+  }
+
+  // If segment changed, recalculate audience size
+  if (mappedData.segment_id) {
+    try {
+      const { data: segment } = await supabase
+        .from("segments")
+        .select("rules")
+        .eq("id", mappedData.segment_id)
+        .single();
+
+      if (segment && segment.rules) {
+        const audienceSize = await customerService.countCustomersBySegment(
+          segment.rules
+        );
+
+        const { data: updatedCampaign } = await supabase
+          .from("campaigns")
+          .update({ audience_size: audienceSize })
+          .eq("id", id)
+          .eq("created_by", userId)
+          .select()
+          .single();
+
+        if (updatedCampaign) {
+          data.audience_size = audienceSize;
+        }
+      }
+    } catch (segmentError) {
+      console.error("Error recalculating audience size:", segmentError);
+    }
+  }
+
+  return data;
+};
+
+// Delete campaign for specific user
+const deleteCampaignForUser = async (id, userId) => {
+  // First delete related communication logs
+  const { error: logsError } = await supabase
+    .from("communication_logs")
+    .delete()
+    .eq("campaignId", id);
+
+  if (logsError) {
+    console.error("Error deleting communication logs:", logsError);
+    // Don't throw error, continue with campaign deletion
+  }
+
+  // Delete the campaign
+  const { data, error } = await supabase
+    .from("campaigns")
+    .delete()
+    .eq("id", id)
+    .eq("created_by", userId)
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Error deleting campaign:", error);
+    throw new Error("Failed to delete campaign");
   }
 
   return data;
@@ -319,6 +419,162 @@ const previewCampaignAudience = async (rules, userId) => {
   }
 };
 
+// Execute campaign - send emails to target audience
+const executeCampaign = async (campaignId, userId) => {
+  try {
+    console.log(`Starting campaign execution for campaign: ${campaignId}`);
+    
+    // Get campaign details
+    const campaign = await getCampaignByIdForUser(campaignId, userId);
+    if (!campaign) {
+      throw new Error("Campaign not found or unauthorized");
+    }
+
+    // Allow re-execution of all campaigns except currently processing ones
+    if (["PROCESSING", "processing", "sending"].includes(campaign.status)) {
+      throw new Error("Campaign is currently being processed");
+    }
+
+    // Update campaign status to PROCESSING
+    await updateCampaign(campaignId, { 
+      status: "PROCESSING",
+      updated_at: new Date().toISOString()
+    });
+
+    // Get segment details
+    const { data: segment } = await supabase
+      .from("segments")
+      .select("rules")
+      .eq("id", campaign.segment_id)
+      .single();
+
+    if (!segment) {
+      throw new Error("Segment not found");
+    }
+
+    // Find customers matching the segment
+    const customers = await customerService.findCustomersBySegment(segment.rules);
+    console.log(`Found ${customers.length} customers matching segment criteria`);
+
+    if (customers.length === 0) {
+      await updateCampaign(campaignId, { 
+        status: "COMPLETED",
+        updated_at: new Date().toISOString(),
+        sent_count: 0,
+        failed_count: 0
+      });
+      return { 
+        success: true, 
+        message: "No customers found matching segment criteria",
+        sent: 0,
+        failed: 0
+      };
+    }
+
+    let sentCount = 0;
+    let failedCount = 0;
+    const emailResults = [];
+
+    // Process each customer
+    for (const customer of customers) {
+      try {
+        // Personalize message template
+        const personalizedMessage = emailService.personalizeMessage(
+          campaign.message_template, 
+          customer
+        );
+
+        // Create a personalized subject line
+        const subjectLine = `${customer.first_name}, Special Offer Just for You! - ${campaign.name}`;
+
+        // Generate HTML email
+        const htmlContent = emailService.generateEmailHTML(personalizedMessage, customer);
+
+        // Send email
+        const emailResult = await emailService.sendEmail({
+          to: customer.email,
+          subject: subjectLine,
+          text: personalizedMessage,
+          html: htmlContent
+        });
+
+        if (emailResult.success) {
+          sentCount++;
+          console.log(`Email sent successfully to: ${customer.email}`);
+        } else {
+          failedCount++;
+          console.log(`Failed to send email to: ${customer.email}`, emailResult.error);
+        }
+
+        // Log communication
+        await supabase.from("communication_logs").insert([{
+          customer_id: customer.id,
+          campaign_id: campaignId,
+          message: personalizedMessage,
+          status: emailResult.status,
+          sent_at: emailResult.success ? new Date().toISOString() : null,
+          error_message: emailResult.error || null,
+          message_id: emailResult.messageId || null
+        }]);
+
+        emailResults.push({
+          customer: customer.email,
+          status: emailResult.status,
+          messageId: emailResult.messageId
+        });
+
+        // Small delay to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+      } catch (error) {
+        failedCount++;
+        console.error(`Error processing customer ${customer.email}:`, error);
+        
+        // Log failed communication
+        await supabase.from("communication_logs").insert([{
+          customer_id: customer.id,
+          campaign_id: campaignId,
+          message: campaign.message_template,
+          status: "FAILED",
+          error_message: error.message,
+          sent_at: new Date().toISOString()
+        }]);
+      }
+    }
+
+    // Update campaign with final results
+    await updateCampaign(campaignId, {
+      status: "COMPLETED",
+      updated_at: new Date().toISOString(),
+      sent_count: sentCount,
+      failed_count: failedCount,
+      audience_size: customers.length
+    });
+
+    console.log(`Campaign execution completed. Sent: ${sentCount}, Failed: ${failedCount}`);
+
+    return {
+      success: true,
+      message: "Campaign executed successfully",
+      sent: sentCount,
+      failed: failedCount,
+      total: customers.length,
+      results: emailResults
+    };
+
+  } catch (error) {
+    console.error("Error executing campaign:", error);
+    
+    // Update campaign status to FAILED
+    await updateCampaign(campaignId, { 
+      status: "FAILED",
+      updated_at: new Date().toISOString()
+    });
+
+    throw new Error(`Failed to execute campaign: ${error.message}`);
+  }
+};
+
 module.exports = {
   createCampaign,
   getCampaigns,
@@ -327,8 +583,11 @@ module.exports = {
   getCampaignByIdForUser,
   getCampaignStats,
   updateCampaign,
+  updateCampaignForUser,
+  deleteCampaignForUser,
   previewAudienceSize,
   previewCampaignAudience,
   processCampaign,
   getCampaignAnalytics,
+  executeCampaign,
 };

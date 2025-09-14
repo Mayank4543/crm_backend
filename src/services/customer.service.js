@@ -173,8 +173,16 @@ const findCustomersBySegment = async (rules) => {
       for (const condition of rules.conditions) {
         console.log('Applying condition:', condition);
         
+        // Get the operation from either 'operator' or 'operation' field
+        const operation = condition.operator || condition.operation;
+        
+        if (!operation) {
+          console.warn('Condition missing operation field:', condition);
+          continue;
+        }
+        
         // Handle different operators
-        switch (condition.operator) {
+        switch (operation) {
           case "=":
           case "equals":
             query = query.eq(condition.field, condition.value);
@@ -228,7 +236,7 @@ const findCustomersBySegment = async (rules) => {
             }
             break;
           default:
-            console.warn(`Unsupported operator: ${condition.operator}`);
+            console.warn(`Unsupported operation: ${operation} for field: ${condition.field}`);
             break;
         }
       }

@@ -35,7 +35,7 @@ const app = express();
 
 const startServer = async () => {
   // Initialize AI Model
-  await initializeModel();
+  // await initializeModel(); // Temporarily disabled for faster startup
 
   // Middleware
   app.use(helmet());

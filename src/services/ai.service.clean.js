@@ -27,17 +27,21 @@ class AIModelManager {
     this.isModelLoading = false;
     this.isModelInitialized = false;
     this.originalConsoleWarn = null;
+    this.originalStderrWrite = null;
+    this.originalStdoutWrite = null;
   }
 
   /**
-   * Mute console noise during model loading (safer approach)
+   * Mute console noise during model loading
    * @private
    */
   muteConsoleNoise() {
-    // Store original console.warn only (safer approach)
+    // Store original functions
     this.originalConsoleWarn = console.warn;
+    this.originalStderrWrite = process.stderr.write;
+    this.originalStdoutWrite = process.stdout.write;
 
-    // Only filter console.warn messages, leave streams alone
+    // Filter out specific warnings
     console.warn = (...args) => {
       const message = args.join(' ');
       
@@ -54,9 +58,7 @@ class AIModelManager {
         message.includes('onnx') ||
         message.includes('decoder') ||
         message.includes('encoder') ||
-        message.includes('generation_config') ||
-        message.includes('CleanUnusedInitializersAndNodeArgs') ||
-        message.includes('Removing initializer')
+        message.includes('generation_config')
       ) {
         return; // Skip these warnings
       }
@@ -64,10 +66,44 @@ class AIModelManager {
       // Call original for other warnings
       this.originalConsoleWarn.apply(console, args);
     };
+
+    // Filter stderr output
+    process.stderr.write = (chunk, ...args) => {
+      const message = chunk.toString();
+      
+      // Skip model loading messages
+      if (
+        message.includes('[INFO]') ||
+        message.includes('[WARN]') ||
+        message.includes('model.safetensors') ||
+        message.includes('transformers') ||
+        message.includes('onnx') ||
+        message.includes('Loading') ||
+        message.includes('Downloading')
+      ) {
+        return true; // Skip these
+      }
+      
+      return this.originalStderrWrite.call(this, chunk, ...args);
+    };
+
+    // Keep stdout mostly unchanged but filter some noisy messages
+    process.stdout.write = (chunk, ...args) => {
+      const message = chunk.toString();
+      
+      if (
+        message.includes('Downloading') ||
+        message.includes('Loading model')
+      ) {
+        return true; // Skip downloading messages
+      }
+      
+      return this.originalStdoutWrite.call(this, chunk, ...args);
+    };
   }
 
   /**
-   * Initialize AI model on demand with better error handling
+   * Initialize AI model on demand
    * @returns {Promise<void>}
    */
   async initializeModel() {
@@ -78,53 +114,27 @@ class AIModelManager {
     this.isModelLoading = true;
     console.log("Loading AI model for enhanced text generation...");
 
+    // Mute console noise during model loading
+    this.muteConsoleNoise();
+
     try {
-      // Mute console noise during model loading
-      this.muteConsoleNoise();
-
-      // Set environment variables to reduce ONNX warnings
-      process.env.ONNX_DISABLE_WARNINGS = '1';
-      process.env.TRANSFORMERS_VERBOSITY = 'error';
-
       // Load a lighter model for better performance
       this.modelPipeline = await pipeline("text-generation", "Xenova/distilgpt2", {
         quantized: true, // Use quantized version for faster loading
         progress_callback: null, // Disable progress logging
         verbose: false, // Disable verbose logging
         silent: true, // Silent loading
-        local_files_only: false, // Allow downloading
-        use_cache: true, // Use cache if available
       });
       
       this.isModelInitialized = true;
-      console.log("✅ AI model loaded successfully - enhanced features enabled!");
-      
-      // Test the model with a simple generation
-      const testResponse = await this.modelPipeline("Hello", {
-        max_new_tokens: 5,
-        do_sample: false,
-        pad_token_id: 50256,
-      });
-      
-      if (testResponse && testResponse.length > 0) {
-        console.log("✅ AI model test successful - ready for use!");
-      }
-      
+      console.log("AI model loaded successfully.");
     } catch (error) {
-      console.error("❌ Failed to load AI model:", error.message);
-      console.log("⚠️  AI features will use fallback pattern matching instead");
-      
+      console.error("Failed to load AI model:", error);
       // Don't exit the process, just disable AI features
       this.modelPipeline = null;
       this.isModelInitialized = false;
     } finally {
       this.isModelLoading = false;
-      
-      // Always restore console after loading attempt
-      if (this.originalConsoleWarn) {
-        console.warn = this.originalConsoleWarn;
-        this.originalConsoleWarn = null;
-      }
     }
   }
 
@@ -150,33 +160,21 @@ class AIModelManager {
   }
 
   /**
-   * Check if AI model is available
-   * @returns {boolean} True if AI model is loaded and ready
-   */
-  isAvailable() {
-    return this.isModelInitialized && this.modelPipeline !== null;
-  }
-
-  /**
-   * Get status of AI model
-   * @returns {Object} Status information
-   */
-  getStatus() {
-    return {
-      isLoading: this.isModelLoading,
-      isInitialized: this.isModelInitialized,
-      isAvailable: this.isAvailable(),
-      model: this.modelPipeline ? 'Xenova/distilgpt2' : null
-    };
-  }
-  /**
    * Cleanup model resources
    */
   cleanup() {
-    // Restore original console.warn only
+    // Restore original console.warn
     if (this.originalConsoleWarn) {
       console.warn = this.originalConsoleWarn;
-      this.originalConsoleWarn = null;
+    }
+    
+    // Restore original stderr and stdout
+    if (this.originalStderrWrite) {
+      process.stderr.write = this.originalStderrWrite;
+    }
+    
+    if (this.originalStdoutWrite) {
+      process.stdout.write = this.originalStdoutWrite;
     }
   }
 }
@@ -194,7 +192,7 @@ class NaturalLanguageProcessor {
    * @returns {string} Unique condition ID
    */
   static generateConditionId() {
-    return `condition_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+    return `condition_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 
   /**
@@ -204,29 +202,17 @@ class NaturalLanguageProcessor {
    */
   static enhancedPatternMatching(text) {
     const rules = { operator: "AND", conditions: [] };
-    const conditionId = () => this.generateConditionId();
+    const conditionId = this.generateConditionId;
 
     // Multiple spending patterns with currency support
     const spendingPatterns = [
-      {
-        pattern: /(?:total\s+)?spend(?:ing)?\s+(?:greater\s+than|more\s+than|over|above|>)\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/i,
-        operator: 'greaterThan'
-      },
       { 
         pattern: /spent\s+(?:over|more\s+than|above|>\s*)\s*[₹$]?(\d+(?:,\d{3})*(?:\.\d{2})?)\s*(?:rupees?|rs?\.?|dollars?|\$)?/i, 
         operator: 'greaterThan' 
       },
-      {
-        pattern: /(?:total\s+)?spend(?:ing)?\s+(?:less\s+than|under|below|<)\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/i,
-        operator: 'lessThan'
-      },
       { 
         pattern: /spent\s+(?:under|less\s+than|below|<\s*)\s*[₹$]?(\d+(?:,\d{3})*(?:\.\d{2})?)\s*(?:rupees?|rs?\.?|dollars?|\$)?/i, 
         operator: 'lessThan' 
-      },
-      {
-        pattern: /(?:total\s+)?spend(?:ing)?\s+(?:equals?|equal\s+to|=)\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/i,
-        operator: 'equals'
       },
       { 
         pattern: /spent\s+(?:exactly|equal\s+to|=\s*)\s*[₹$]?(\d+(?:,\d{3})*(?:\.\d{2})?)\s*(?:rupees?|rs?\.?|dollars?|\$)?/i, 
@@ -428,47 +414,24 @@ class NaturalLanguageProcessor {
   }
 
   /**
-   * Extract JSON from AI response text with improved parsing
+   * Extract JSON from AI response text
    * @param {string} text - AI response text
    * @returns {Object|null} Parsed JSON object or null
    */
   static extractJSON(text) {
-    // Try multiple approaches to extract JSON
-    
-    // Method 1: Find complete JSON object
-    let jsonStart = text.indexOf('{');
-    let jsonEnd = text.lastIndexOf('}') + 1;
+    // Try to find JSON object
+    const jsonStart = text.indexOf('{');
+    const jsonEnd = text.lastIndexOf('}') + 1;
     
     if (jsonStart !== -1 && jsonEnd > jsonStart) {
-      let jsonString = text.slice(jsonStart, jsonEnd);
-      
-      // Clean up common AI response issues
-      jsonString = jsonString
-        .replace(/```json/g, '')
-        .replace(/```/g, '')
-        .replace(/\n\s*\n/g, '\n')
-        .trim();
-      
+      const jsonString = text.slice(jsonStart, jsonEnd);
       try {
         return JSON.parse(jsonString);
       } catch (e) {
-        console.log("Method 1 failed:", e.message);
-        
-        // Method 2: Try to fix common JSON issues
-        try {
-          // Remove text after the last }
-          const lastBraceIndex = jsonString.lastIndexOf('}');
-          if (lastBraceIndex !== -1) {
-            jsonString = jsonString.substring(0, lastBraceIndex + 1);
-            return JSON.parse(jsonString);
-          }
-        } catch (e2) {
-          console.log("Method 2 failed:", e2.message);
-        }
+        console.log("Failed to parse JSON:", e.message);
+        return null;
       }
     }
-    
-    console.log("All JSON extraction methods failed for text:", text.substring(0, 200));
     return null;
   }
 }
@@ -574,79 +537,19 @@ class MessageGenerator {
    */
   static extractMessages(text) {
     const messages = [];
-    console.log("Raw AI response for extraction:", text.substring(0, 500));
-    
-    // Split by the prompt and get only the generated part
-    const parts = text.split('Generate 3 messages for');
-    const generatedPart = parts.length > 1 ? parts[parts.length - 1] : text;
-    
-    const lines = generatedPart.split('\n');
+    const lines = text.split('\n');
     
     for (const line of lines) {
       const trimmed = line.trim();
-      
-      // Skip empty lines and prompt text
-      if (!trimmed || trimmed.includes('Requirements:') || trimmed.includes('Format (EXACTLY') || 
-          trimmed.includes('Generate exactly') || trimmed.includes('campaign.')) {
-        continue;
-      }
-      
-      // Look for numbered messages (1., 2., 3.)
-      if (/^\d+\./.test(trimmed)) {
+      // Look for numbered messages or emoji-started messages
+      if (/^\d+\./.test(trimmed) || /^[🎉💝⚡🔥👋✨💰🛍️🔄👑💎🌟🚀🎯🎄🌸☀️🙏⭐⏰🚨]/.test(trimmed)) {
         let message = trimmed.replace(/^\d+\.\s*/, '').trim();
-        
-        // Skip if it's just example text or contains unwanted patterns
-        if (message.includes('[Message with') || message.includes('[Different tone') || 
-            message.includes('[Urgent/action') || message.includes('Each message must') ||
-            message.includes('Use placeholders') || message.includes('Clear call-to-action')) {
-          continue;
-        }
-        
-        if (message.length > 15 && message.length <= 200) {
+        if (message.length > 10 && message.length <= 160) {
           messages.push(message);
-          console.log("Extracted numbered message:", message);
-        }
-      }
-      // Also look for emoji-started messages that seem like actual content
-      else if (/^[🎉💝⚡🔥👋✨💰🛍️🔄👑💎🌟🚀🎯🎄🌸☀️🙏⭐⏰🚨]/.test(trimmed)) {
-        if (trimmed.length > 15 && trimmed.length <= 200 && 
-            !trimmed.includes('[') && !trimmed.includes('Format') && 
-            (trimmed.includes('{') || trimmed.includes('off') || trimmed.includes('discount') || 
-             trimmed.includes('offer') || trimmed.includes('sale') || trimmed.includes('save'))) {
-          messages.push(trimmed);
-          console.log("Extracted emoji message:", trimmed);
         }
       }
     }
     
-    // If still no messages, try a more aggressive approach
-    if (messages.length === 0) {
-      console.log("No standard extraction worked, trying aggressive extraction");
-      
-      // Look for any line with marketing-related keywords
-      const marketingLines = lines.filter(line => {
-        const trimmed = line.trim();
-        const hasMarketingWords = trimmed.includes('off') || trimmed.includes('discount') || 
-                                 trimmed.includes('offer') || trimmed.includes('sale') || 
-                                 trimmed.includes('save') || trimmed.includes('special') ||
-                                 trimmed.includes('limited') || trimmed.includes('exclusive');
-        
-        const hasPlaceholders = trimmed.includes('{') && trimmed.includes('}');
-        const hasEmoji = /[🎉💝⚡🔥👋✨💰🛍️🔄👑💎🌟🚀🎯🎄🌸☀️🙏⭐⏰🚨]/.test(trimmed);
-        
-        return trimmed.length > 15 && trimmed.length <= 200 && 
-               (hasMarketingWords || hasPlaceholders || hasEmoji) && 
-               !trimmed.includes('Requirements') && !trimmed.includes('Format');
-      });
-      
-      marketingLines.slice(0, 3).forEach(line => {
-        const cleaned = line.trim().replace(/^\d+\.\s*/, '');
-        messages.push(cleaned);
-        console.log("Aggressively extracted message:", cleaned);
-      });
-    }
-    
-    console.log("Final extracted messages count:", messages.length);
     return messages;
   }
 }
@@ -842,15 +745,14 @@ class LookalikeAnalyzer {
  */
 const naturalLanguageToRules = async (naturalLanguage) => {
   try {
-    console.log("🔄 Converting natural language to rules:", naturalLanguage);
+    console.log("Converting natural language to rules:", naturalLanguage);
 
-    // Check if AI model is available and working
-    if (aiModelManager.isAvailable()) {
-      try {
-        console.log("🤖 Using AI model for enhanced rule generation...");
-        const generator = await aiModelManager.getModel();
-        
-        const prompt = `Convert this customer targeting description into precise database query rules:
+    // Try AI model first with enhanced prompting
+    try {
+      console.log("Attempting to use AI model...");
+      const generator = await aiModelManager.getModel();
+      
+      const prompt = `Convert this customer targeting description into precise database query rules:
 
 "${naturalLanguage}"
 
@@ -889,90 +791,78 @@ Examples:
 
 Convert: "${naturalLanguage}"`;
 
-        const response = await generator(prompt, {
-          max_new_tokens: 300,
-          do_sample: false,
-          temperature: 0.1,
-          repetition_penalty: 1.1,
-          pad_token_id: 50256,
-        });
+      console.log("Generating response with AI model...");
+      const response = await generator(prompt, {
+        max_new_tokens: 300,
+        do_sample: false,
+        temperature: 0.1,
+        repetition_penalty: 1.1,
+        pad_token_id: 50256,
+      });
 
-        const generatedText = response[0].generated_text;
-        console.log("🤖 AI Raw Response (first 500 chars):", generatedText.substring(0, 500));
+      const generatedText = response[0].generated_text;
+      console.log("AI model raw response:", generatedText);
+      
+      const aiRules = NaturalLanguageProcessor.extractJSON(generatedText);
+      
+      if (aiRules && aiRules.operator && aiRules.conditions && Array.isArray(aiRules.conditions)) {
+        // Add IDs if missing and validate structure
+        aiRules.conditions = aiRules.conditions.map((condition, index) => ({
+          ...condition,
+          id: condition.id || `condition_${Date.now()}_${index + 1}`
+        }));
         
-        const aiRules = NaturalLanguageProcessor.extractJSON(generatedText);
-        console.log("📝 Extracted AI Rules:", aiRules);
+        // Basic validation
+        const validConditions = aiRules.conditions.filter(condition => 
+          condition.field && condition.operation && condition.value !== undefined
+        );
         
-        if (aiRules && aiRules.operator && aiRules.conditions && Array.isArray(aiRules.conditions)) {
-          // Add IDs if missing and validate structure
-          aiRules.conditions = aiRules.conditions.map((condition, index) => ({
-            ...condition,
-            id: condition.id || `condition_${Date.now()}_${index + 1}`
-          }));
-          
-          // Basic validation
-          const validConditions = aiRules.conditions.filter(condition => 
-            condition.field && condition.operation && condition.value !== undefined
-          );
-          
-          if (validConditions.length > 0) {
-            aiRules.conditions = validConditions;
-            console.log("✅ Successfully generated rules using AI model");
-            return aiRules;
-          }
+        if (validConditions.length > 0) {
+          aiRules.conditions = validConditions;
+          console.log("Successfully generated rules using AI model:", JSON.stringify(aiRules, null, 2));
+          return aiRules;
         }
-        
-        throw new Error("Invalid rules structure from AI model");
-        
-      } catch (aiError) {
-        console.log("⚠️  AI model failed, using pattern matching:", aiError.message);
       }
-    } else {
-      console.log("📋 AI model not available, using enhanced pattern matching");
-    }
-    
-    // Use enhanced pattern matching (always reliable fallback)
-    const rules = NaturalLanguageProcessor.enhancedPatternMatching(naturalLanguage);
+      
+      throw new Error("Invalid rules structure from AI model");
+      
+    } catch (aiError) {
+      console.log("AI model failed, using enhanced pattern matching:", aiError.message);
+      
+      // Use enhanced pattern matching
+      const rules = NaturalLanguageProcessor.enhancedPatternMatching(naturalLanguage);
 
-    // If no conditions were detected, create intelligent defaults based on keywords
-    if (rules.conditions.length === 0) {
-      console.log("🎯 No patterns matched, creating intelligent defaults");
-      
-      const text = naturalLanguage.toLowerCase();
-      
-      // Create more intelligent defaults based on the input
-      if (text.includes('spend') && text.includes('1000')) {
-        // Handle spending patterns specifically
-        rules.conditions.push({
-          id: `condition_${Date.now()}_spend`,
-          field: "total_spend",
-          operation: "greaterThan",
-          value: 1000,
-        });
-      } else if (text.includes('customer') || text.includes('people') || text.includes('user')) {
-        // Default to customers with some spending
-        rules.conditions.push({
-          id: `condition_${Date.now()}_default`,
-          field: "total_spend",
-          operation: "greaterThan",
-          value: 0,
-        });
-      } else {
-        // Very generic fallback - use existing customers only
-        rules.conditions.push({
-          id: `condition_${Date.now()}_fallback`,
-          field: "total_spend",
-          operation: "greaterThanOrEqual",
-          value: 0,
-        });
+      // If no conditions were detected, create intelligent defaults based on keywords
+      if (rules.conditions.length === 0) {
+        console.log("No patterns matched, creating intelligent defaults");
+        
+        const text = naturalLanguage.toLowerCase();
+        
+        if (text.includes('customer') || text.includes('people') || text.includes('user')) {
+          // Default to all active customers
+          rules.conditions.push({
+            id: `condition_${Date.now()}_default`,
+            field: "total_spend",
+            operation: "greaterThan",
+            value: 0,
+          });
+        } else {
+          // Very generic fallback
+          rules.conditions.push({
+            id: `condition_${Date.now()}_fallback`,
+            field: "created_at",
+            operation: "isNotEmpty",
+            value: null,
+          });
+        }
       }
-    }
 
-    console.log("✅ Generated rules using enhanced pattern matching");
-    return rules;
+      console.log("Generated rules using enhanced pattern matching:", JSON.stringify(rules, null, 2));
+      return rules;
+    }
 
   } catch (err) {
-    console.error("❌ Error converting natural language to rules:", err);
+    console.error("Error converting natural language to rules:", err);
     
     // Return basic fallback rules with explanation
     return {
@@ -1008,97 +898,60 @@ const generateMessageSuggestions = async (campaignObjective, segmentData = null)
       'for targeted audience';
     
     // Try AI model first for more creative suggestions
-    if (aiModelManager.isAvailable()) {
-      try {
-        console.log("Using AI model for creative message generation...");
-        const generator = await aiModelManager.getModel();
-        
-        // Create a more specific and directive prompt
-        const prompt = `Write 3 marketing SMS messages for ${campaignObjective} campaign. Each message must be under 160 characters with emojis and placeholders.
+    try {
+      console.log("Attempting to use AI model for message generation...");
+      const generator = await aiModelManager.getModel();
+      
+      const prompt = `Generate 3 engaging marketing message templates for a ${campaignObjective} campaign ${audienceContext}.
 
-Message 1 (friendly tone):
-Message 2 (urgent tone):  
-Message 3 (exclusive tone):
+Requirements:
+- Each message should be under 160 characters
+- Include relevant emojis
+- Add personalization placeholders like {firstName}, {discount}, {productName}
+- Make them actionable with clear call-to-action
+- Vary the tone and approach
 
-Examples:
-🎉 Hi {firstName}! Special 20% off just for you! Use code SAVE20. Shop now at {storeName}!
-⚡ URGENT: Only 6 hours left! Get 25% OFF everything. Don't miss out {firstName}!
-👑 VIP Exclusive: {firstName}, enjoy 30% off premium items. Limited time offer!
+Category: ${category}
+Objective: ${campaignObjective}
 
-Write 3 marketing messages for ${campaignObjective}:`;
+Example format:
+1. 🎉 [Message with {placeholder}]
+2. 💝 [Different tone message]
+3. ⚡ [Urgent/action-oriented message]
 
-        const response = await generator(prompt, {
-          max_new_tokens: 250,
-          do_sample: true,
-          temperature: 0.8,
-          top_p: 0.9,
-          repetition_penalty: 1.2,
-          pad_token_id: 50256,
-        });
+Generate 3 marketing messages:`;
 
-        const generatedText = response[0].generated_text;
-        console.log("AI generated text sample:", generatedText.substring(0, 800));
-        
-        // Try to extract actual AI-generated content (not the examples)
-        const parts = generatedText.split(`Write 3 marketing messages for ${campaignObjective}:`);
-        const aiGeneratedPart = parts.length > 1 ? parts[1] : generatedText;
-        
-        console.log("AI generated part:", aiGeneratedPart.substring(0, 400));
-        
-        const messages = MessageGenerator.extractMessages(aiGeneratedPart);
-        
-        // If we got good AI messages, enhance them and return
-        if (messages.length >= 1) {
-          console.log("Successfully extracted AI-generated messages:", messages);
-          
-          // Enhance messages with proper placeholders if missing
-          const enhancedMessages = messages.map(msg => {
-            let enhanced = msg;
-            
-            // Add firstName placeholder if missing
-            if (!enhanced.includes('{firstName}') && !enhanced.includes('you')) {
-              enhanced = enhanced.replace(/^([🎉💝⚡🔥👋✨💰🛍️🔄👑💎🌟🚀🎯🎄🌸☀️🙏⭐⏰🚨]\s*)/, '$1{firstName}, ');
-            }
-            
-            // Add discount placeholder if missing but mentions percentage
-            if (!enhanced.includes('{discount}') && /\d+%/.test(enhanced)) {
-              enhanced = enhanced.replace(/(\d+)%/, '{discount}%');
-            }
-            
-            // Add store name if missing
-            if (!enhanced.includes('{storeName}') && !enhanced.includes('shop') && !enhanced.includes('store')) {
-              enhanced = enhanced + ' Visit {storeName}!';
-            }
-            
-            // Ensure it's within SMS limits
-            if (enhanced.length > 160) {
-              enhanced = enhanced.substring(0, 157) + '...';
-            }
-            
-            return enhanced;
-          });
-          
-          console.log("Enhanced AI messages:", enhancedMessages);
-          return enhancedMessages.slice(0, 3); // Return up to 3 messages
-        }
-        
-        console.log("Not enough valid messages extracted from AI response");
-        
-      } catch (aiError) {
-        console.log("AI model failed for message generation:", aiError.message);
+      const response = await generator(prompt, {
+        max_new_tokens: 200,
+        do_sample: true,
+        temperature: 0.7,
+        repetition_penalty: 1.1,
+        pad_token_id: 50256,
+      });
+
+      const generatedText = response[0].generated_text;
+      console.log("AI model response for messages:", generatedText);
+      
+      const messages = MessageGenerator.extractMessages(generatedText);
+      
+      // If we got good AI messages, return them
+      if (messages.length >= 2) {
+        console.log("Successfully generated messages using AI model");
+        return messages.slice(0, 3); // Return up to 3 messages
       }
-    } else {
-      console.log("AI model not available, using templates");
+      
+      throw new Error("Not enough valid messages from AI model");
+      
+    } catch (aiError) {
+      console.log("AI model failed for message generation, using templates:", aiError.message);
     }
     
-    // Fallback to template-based generation with smart customization
-    console.log("Using template-based message generation with smart customization");
-    
+    // Fallback to template-based generation with smart placeholders
     const categoryData = MessageGenerator.MESSAGE_CATEGORIES[category];
     const templates = categoryData.templates;
     const defaults = categoryData.defaults;
     
-    // Create smart placeholders based on campaign objective
+    // Create smart placeholders based on segment data
     const placeholders = {
       ...defaults,
       firstName: "{firstName}",
@@ -1106,63 +959,40 @@ Write 3 marketing messages for ${campaignObjective}:`;
       storeName: "{storeName}",
     };
     
-    // Adjust defaults based on campaign objective keywords
+    // Adjust defaults based on campaign objective
     const objective = campaignObjective.toLowerCase();
-    if (objective.includes('flash') || objective.includes('urgent') || objective.includes('limited')) {
-      placeholders.hours = Math.floor(Math.random() * 12) + 6; // 6-18 hours
-      placeholders.discount = 25 + Math.floor(Math.random() * 15); // 25-40%
-    } else if (objective.includes('premium') || objective.includes('vip') || objective.includes('exclusive')) {
-      placeholders.discount = 20 + Math.floor(Math.random() * 15); // 20-35%
-    } else if (objective.includes('first time') || objective.includes('welcome') || objective.includes('new')) {
-      placeholders.discount = 10 + Math.floor(Math.random() * 10); // 10-20%
-    } else if (objective.includes('win back') || objective.includes('return') || objective.includes('inactive')) {
-      placeholders.discount = 15 + Math.floor(Math.random() * 15); // 15-30%
-    } else {
-      placeholders.discount = 15 + Math.floor(Math.random() * 20); // 15-35%
+    if (objective.includes('flash') || objective.includes('urgent')) {
+      placeholders.hours = 6;
+      placeholders.discount = 30;
+    } else if (objective.includes('premium') || objective.includes('vip')) {
+      placeholders.discount = 25;
+    } else if (objective.includes('first time') || objective.includes('welcome')) {
+      placeholders.discount = 10;
     }
     
-    // Generate messages by filling templates with objective-specific content
-    const messages = templates.map((template, index) => {
+    // Generate messages by filling templates
+    const messages = templates.map(template => {
       let message = template;
-      
-      // Replace placeholders with actual values
       Object.keys(placeholders).forEach(key => {
         const placeholder = `{${key}}`;
         if (message.includes(placeholder)) {
           message = message.replace(new RegExp(`\\{${key}\\}`, 'g'), placeholders[key]);
         }
       });
-      
-      // Add campaign-specific customization
-      if (objective.includes('welcome') || objective.includes('new customer')) {
-        message = message.replace('Special offer', 'Welcome offer').replace('Get', 'Welcome! Get');
-      } else if (objective.includes('win back') || objective.includes('inactive')) {
-        message = message.replace('Special offer', 'We miss you').replace('Get', 'Come back and get');
-      } else if (objective.includes('loyal') || objective.includes('appreciation')) {
-        message = message.replace('Special offer', 'Loyalty reward').replace('Get', 'As our valued customer, get');
-      } else if (objective.includes('retention')) {
-        message = message.replace('Special offer', 'Thank you for staying with us').replace('Get', 'Enjoy');
-      } else if (objective.includes('seasonal') || objective.includes('holiday')) {
-        message = message.replace('Special offer', 'Seasonal celebration').replace('Get', 'Celebrate with');
-      } else if (objective.includes('birthday')) {
-        message = message.replace('Special offer', 'Birthday treat').replace('Get', 'Celebrate your birthday with');
-      }
-      
       return message;
     });
     
-    console.log("Generated template-based message suggestions:", messages);
+    console.log("Generated message suggestions using templates:", messages);
     return messages;
 
   } catch (err) {
     console.error("Error generating message suggestions:", err);
     
-    // Emergency fallback messages with dynamic content
-    const discountValue = 15 + Math.floor(Math.random() * 20);
+    // Emergency fallback messages
     return [
-      `🎉 Special ${discountValue}% discount just for you {firstName}! Limited time offer - shop now at {storeName}!`,
-      `💝 Thank you for being our valued customer! Enjoy ${discountValue + 5}% off your next purchase at {storeName}`,
-      `⚡ Flash Sale Alert! Get ${discountValue + 10}% OFF everything for the next 24 hours. Don't miss out {firstName}!`
+      "🎉 Special offer just for you! Don't miss out on this amazing deal!",
+      "💝 Thank you for being our valued customer. Here's something special!",
+      "⚡ Limited time offer! Act fast and save big on your favorite items!"
     ];
   }
 };
@@ -1353,12 +1183,9 @@ const generateLookalikeAudience = async (campaignId, segmentData = null) => {
 // INITIALIZATION AND CLEANUP
 // =============================================================================
 
-// Initialize model in background when the service starts (non-blocking)
-setImmediate(() => {
-  aiModelManager.initializeModel().catch(err => {
-    console.log("⚠️  AI model initialization failed on startup:", err.message);
-    console.log("📊 CRM will continue with pattern matching for AI features");
-  });
+// Initialize model when the service starts
+aiModelManager.initializeModel().catch(err => {
+  console.error("Failed to initialize AI model on startup:", err);
 });
 
 // Handle process cleanup
@@ -1376,7 +1203,4 @@ module.exports = {
   generateLookalikeAudience,
   initializeModel: () => aiModelManager.initializeModel(),
   getModel: () => aiModelManager.getModel(), // Export for testing
-  getAIStatus: () => aiModelManager.getStatus(), // Export AI status
-  isAIAvailable: () => aiModelManager.isAvailable(), // Quick availability check
-  cleanupModel: () => aiModelManager.cleanup(), // Export cleanup function
 };

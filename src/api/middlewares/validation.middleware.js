@@ -63,8 +63,10 @@ const schemas = {
   // Campaign validation schema
   campaignSchema: Joi.object({
     name: Joi.string().required(),
-    rules: Joi.object().required(),
-    message: Joi.string().required(),
+    segmentId: Joi.string().required(),
+    messageTemplate: Joi.string().required(),
+    objective: Joi.string().optional().allow('', null),
+    tags: Joi.array().items(Joi.string()).optional().default([]),
   }),
 
   // Campaign preview validation schema
